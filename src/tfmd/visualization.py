@@ -36,7 +36,7 @@ def plot_decomposition(
         for i, mode in enumerate(modes):
             axes[1].plot(t, mode, label=f"Mode {i+1}")
         axes[1].set_title("Decomposed Modes")
-        axes[1].legend(loc="upper right")
+        # axes[1].legend(loc="upper right") # Commented out to avoid clutter with many modes
     else:
         axes[1].set_title("No Modes Found")
     axes[1].grid(True, linestyle="--", alpha=0.6)
@@ -57,10 +57,10 @@ def plot_decomposition(
     axes[2].grid(True, linestyle="--", alpha=0.6)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # type: ignore
-    # Save the figure to a file to be displayed later.
     if env == "notebook":
         plt.show()
     else:
+        # Save the figure to a file to be displayed later.
         plt.savefig("decomposition_plot.png")
         plt.close(fig)  # Close the figure to prevent it from displaying in the output
 
@@ -88,6 +88,7 @@ def plot_spectrogram(
 
     # Use pcolormesh for accurate grid representation
     # Using log scale for intensity often reveals hidden details
+    # Use gouraud shading for smoother visualization
     pcm = ax.pcolormesh(t_axis, f_axis, spectrogram, shading="gouraud", cmap="jet")
 
     ax.set_title(title)
@@ -98,45 +99,32 @@ def plot_spectrogram(
 
 
 def plot_pipeline_steps(decomposer, fs: int):
-    """
-    Visualizes the internal state of a TFMD instance after decomposition.
-    This is the 'Dashboard' for debugging segmentation failures.
-
-    Args:
-        decomposer: A TFMD instance that has already run .decompose()
-        fs: Sampling frequency
-    """
+    """Visualizes the internal state of a TFMD instance after decomposition."""
     if decomposer.spectrogram_ is None:
         raise ValueError("Decomposer has not been run yet.")
 
     opts = decomposer.opts
     hop = int(opts.window_length * (1 - opts.overlap_ratio))
-
+    
     fig, axes = plt.subplots(2, 2, figsize=(16, 10), sharex=True, sharey=True)
     fig.suptitle("TFMD Pipeline Inspection", fontsize=16)
-
-    # 1. Raw Spectrogram
-    plot_spectrogram(
-        decomposer.spectrogram_, fs, hop, ax=axes[0, 0], title="1. Raw STFT Spectrogram"
-    )
-
-    # 2. K-Means Core Mask (Binary)
-    # We use the same axis logic but plot the boolean mask
+    
+    # Calculate axes based on the actual stored spectrogram shape
     n_freqs, n_frames = decomposer.spectrogram_.shape
-    f_axis = np.linspace(0, fs / 2, n_freqs)
+    f_axis = np.linspace(0, fs/2, n_freqs)
     t_axis = np.arange(n_frames) * hop / fs
-
-    axes[0, 1].pcolormesh(
-        t_axis, f_axis, decomposer.core_mask_, cmap="gray_r", shading="nearest"
-    )
+    
+    # 1. Raw Spectrogram (Gouraud shading)
+    axes[0, 0].pcolormesh(t_axis, f_axis, decomposer.spectrogram_, shading='gouraud', cmap='jet')
+    axes[0, 0].set_title("1. Raw STFT Spectrogram")
+    
+    # 2. K-Means Core Mask
+    axes[0, 1].pcolormesh(t_axis, f_axis, decomposer.core_mask_, cmap='gray_r', shading='nearest')
     axes[0, 1].set_title("2. K-Means Signal Core (Clusters=2)")
-
-    # 3. Labeled Components (Post-CCL, Pre-Filter)
-    # We use a distinctive colormap to show different integer labels
-    cmap_labels = plt.get_cmap("tab20", np.max(decomposer.labeled_mask_) + 1)
-    axes[1, 0].pcolormesh(
-        t_axis, f_axis, decomposer.labeled_mask_, cmap=cmap_labels, shading="nearest"
-    )
+    
+    # 3. Labeled Components
+    cmap_labels = plt.get_cmap('tab20', np.max(decomposer.labeled_mask_) + 1)
+    axes[1, 0].pcolormesh(t_axis, f_axis, decomposer.labeled_mask_, cmap=cmap_labels, shading='nearest')
     axes[1, 0].set_title("3. Labeled Components (CCL)")
 
     # 4. Final Expanded Masks (Post-ICD)
@@ -145,12 +133,10 @@ def plot_pipeline_steps(decomposer, fs: int):
     if decomposer.final_masks_:
         for idx, mask in enumerate(decomposer.final_masks_):
             final_composite[mask] = idx + 1
-
-    axes[1, 1].pcolormesh(
-        t_axis, f_axis, final_composite, cmap=cmap_labels, shading="nearest"
-    )
+            
+    axes[1, 1].pcolormesh(t_axis, f_axis, final_composite, cmap=cmap_labels, shading='nearest')
     axes[1, 1].set_title(f"4. Final Modes after ICD (N={len(decomposer.final_masks_)})")
-
+    
     plt.tight_layout()
     plt.show()
 
@@ -161,7 +147,7 @@ def plot_instantaneous_frequency(t: np.ndarray, modes: list[np.ndarray], fs: int
     Essential for validating chirp tracking.
     """
     fig, ax = plt.subplots(figsize=(12, 6))
-
+    
     for i, mode in enumerate(modes):
         analytic_signal = hilbert(mode)
         instantaneous_phase = np.unwrap(np.angle(analytic_signal)) # type: ignore
