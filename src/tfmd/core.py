@@ -62,11 +62,23 @@ class TFMD:
 
         # --- 1. STFT ---
         # Configure the Short-Time Fourier Transform
-        win = get_window(('gaussian', self.opts.alpha), self.opts.window_length)
+        # CRITICAL FIX: Convert MATLAB alpha to SciPy standard deviation
+        # MATLAB: alpha is inversely proportional to width
+        # SciPy: std is directly proportional to width
+        std = (self.opts.window_length - 1) / (2 * self.opts.alpha)
+        
+        # Pass the calculated std, not alpha
+        win = get_window(('gaussian', std), self.opts.window_length)
         hop = int(self.opts.window_length * (1 - self.opts.overlap_ratio))
-        sft = ShortTimeFFT(win, hop=hop, fs=fs, scale_to='psd')
+        sft = ShortTimeFFT(win, hop=hop, fs=fs, scale_to='magnitude')
         
         S = sft.stft(signal) # Spectrogram
+
+        # ShortTimeFFT adds padding to center the windows. We slice S to keep
+        # only the frames corresponding to the actual signal duration.
+        k_max = sft.nearest_k_p(n_samples)
+        S = S[:, :k_max]
+
         magnitude = np.abs(S)
         self.spectrogram_ = magnitude
 
@@ -147,9 +159,12 @@ class TFMD:
             S_masked = S * mask
             
             # Reconstruct the mode via inverse STFT
+	    # Note: We don't pass length here, we truncate manually
             recon_mode = sft.istft(S_masked)
             
             # Truncate to original signal length
+            # The istft output might be slightly longer than n_samples due to the previous trimming logic
+            # so we ensure it matches n_samples exactly.
             components.append(recon_mode[:n_samples])
 
         # Sum modes to get the final reconstructed signal
